@@ -53,9 +53,10 @@ std::pair<std::vector<double>, std::vector<double>> MagnitudeSpectrum(
   return {freqs, mags};
 }
 
-auto realView(const std::vector<std::complex<double>>& v) {
-  return std::views::transform(
+std::vector<double> ForReals(const std::vector<std::complex<double>>& v) {
+  auto vw = std::views::transform(
       v, [](const std::complex<double>& c) { return c.real(); });
+  return std::vector(vw.begin(), vw.end());
 }
 
 void GNUPlot(const std::vector<double>& time, const std::vector<double>& amp) {
@@ -85,39 +86,32 @@ void GNUPlot(const std::vector<double>& time, const std::vector<double>& amp) {
   // }
 }
 
-void GenerateRealSinusoid() {
+std::vector<double> GenerateRealSinusoid() {
   constexpr double kAmplitude = 0.8;
   constexpr double kFreqHz = 1000;
   double phi = std::numbers::pi / 2;
 
-  auto time = arange(-0.002, .002, 1.0 / kSamplingRate);
-  std::cout << "GOT VALS: len :" << time.size() << "\n";
-  for (const auto& v : time) {
-    std::cout << v << std::endl;
-  }
-
+  auto time = arange(-0.002, 0.002, 1.0 / kSamplingRate);
   std::vector<double> signal;
   for (const auto& v : time) {
     signal.push_back(kAmplitude *
                      std::cos(2.0 * std::numbers::pi * kFreqHz * v + phi));
   }
-
-  GNUPlot(time, signal);
+  return signal;
 }
 
-void GenerateComplexSinusoid() {
-  constexpr double k = 3;
+std::vector<std::complex<double>> GenerateComplexSinusoid() {
+  constexpr double k = 5;
   auto n = arange(-N / 2, N / 2);
   std::vector<std::complex<double>> signal;
   for (const auto& t : n) {
     double phase = 2.0 * std::numbers::pi * k * t / N;
     signal.push_back(std::polar(1.0, phase));
   }
-  auto view = realView(signal);
-  GNUPlot(n, std::vector<double>(view.begin(), view.end()));
+  return signal;
 }
 
-std::vector<std::complex<double>> DFT(const std::vector<double>& signal) {
+std::vector<std::complex<double>> DFT(std::span<const double> signal) {
   std::vector<std::complex<double>> X(signal.size());
   for (int k = 0; k < signal.size(); k++) {
     std::complex<double> accum(0, 0);
@@ -131,13 +125,39 @@ std::vector<std::complex<double>> DFT(const std::vector<double>& signal) {
   return X;
 }
 
+std::vector<std::complex<double>> iDFT(std::vector<std::complex<double>> dft) {
+  std::vector<std::complex<double>> signal(dft.size());
+  auto multp = 1.0 / dft.size();
+  for (int n = 0; n < dft.size(); n++) {
+    std::complex<double> accum(0, 0);
+    for (int k = 0; k < dft.size(); k++) {
+      double phase = 2.0 * std::numbers::pi * n * k / signal.size();
+      std::complex<double> amp = std::polar(1.0, phase);
+      accum += multp * dft[k] * amp;
+    }
+    signal[n] = accum;
+  }
+  return signal;
+}
+
 int main() {
   std::cout << "YO MO!" << std::endl;
-  constexpr int kNumSamples = 1024;
-  auto signal =
-      GenerateMultiToneSignal({{5440.0, 1.0}, {780.0, 0.5}, {1320.0, 0.25}},
-                              kSamplingRate, kNumSamples);
-  auto X = DFT(signal);
-  auto [freqs, mags] = MagnitudeSpectrum(X, kSamplingRate);
+  // constexpr int kNumSamples = 1024;
+  // auto signal =
+  //     GenerateMultiToneSignal({{5440.0, 1.0}, {780.0, 0.5}, {1320.0, 0.25}},
+  //                             kSamplingRate, kNumSamples);
+  // auto time = arange(-0.002, 0.002, 1.0 / kSamplingRate);
+  // auto time = arange(-N / 2, N / 2);
+  auto time = arange(0.0, 1.0, 1.0 / N);
+  //  auto signal = GenerateRealSinusoid();
+  auto signal = GenerateComplexSinusoid();
+  // GNUPlot(time, ForReals(signal));
+  GNUPlot(time, ForReals(signal));
+  auto X = DFT(ForReals(signal));
+  // auto X = DFT(signal);
+  auto [freqs, mags] = MagnitudeSpectrum(X, N);
   GNUPlot(freqs, mags);
+
+  auto reconstructedSignal = iDFT(X);
+  GNUPlot(time, ForReals(reconstructedSignal));
 }
