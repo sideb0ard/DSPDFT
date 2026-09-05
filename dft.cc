@@ -1,3 +1,5 @@
+#include <sndfile.h>
+
 #include <cmath>
 #include <complex>
 #include <cstdio>
@@ -140,24 +142,63 @@ std::vector<std::complex<double>> iDFT(std::vector<std::complex<double>> dft) {
   return signal;
 }
 
+void OpenSquareWave() {
+  constexpr std::string_view filename = "./square-wave-440.wav";
+
+  SF_INFO fileinfo;
+  SNDFILE* sndf = sf_open(filename.data(), SFM_READ, &fileinfo);
+
+  std::cout << "YO - OPENED FILE:" << filename << " SR:" << fileinfo.samplerate
+            << " Format:" << fileinfo.format
+            << " Num frames:" << fileinfo.frames << std::endl;
+
+  constexpr int NFFT = 512;
+  constexpr int STEPSIZE = 256;
+  const int num_frames = fileinfo.frames;
+  const int num_channels = fileinfo.channels;
+
+  std::vector<double> buffer(NFFT * num_channels, 0);
+  int file_idx = 0;
+  int write_num = 0;
+  int num_read = 0;
+  while (file_idx < num_frames) {
+    int write_idx = 0;
+    if (write_num == 1) {
+      write_idx = buffer.size() / 2;
+    }
+    sf_count_t frames_read =
+        sf_readf_double(sndf, &buffer[write_idx], STEPSIZE);
+    std::cout << "REad: " << frames_read << std::endl;
+    write_num++;
+    if (write_num == 2) {
+      // DO STFT
+      buffer.clear();
+    }
+    file_idx += STEPSIZE;
+  }
+}
+
 int main() {
   std::cout << "YO MO!" << std::endl;
+
+  OpenSquareWave();
+
   // constexpr int kNumSamples = 1024;
   // auto signal =
   //     GenerateMultiToneSignal({{5440.0, 1.0}, {780.0, 0.5}, {1320.0, 0.25}},
   //                             kSamplingRate, kNumSamples);
   // auto time = arange(-0.002, 0.002, 1.0 / kSamplingRate);
   // auto time = arange(-N / 2, N / 2);
-  auto time = arange(0.0, 1.0, 1.0 / N);
-  //  auto signal = GenerateRealSinusoid();
-  auto signal = GenerateComplexSinusoid();
+  // auto time = arange(0.0, 1.0, 1.0 / N);
+  // //  auto signal = GenerateRealSinusoid();
+  // auto signal = GenerateComplexSinusoid();
+  // // GNUPlot(time, ForReals(signal));
   // GNUPlot(time, ForReals(signal));
-  GNUPlot(time, ForReals(signal));
-  auto X = DFT(ForReals(signal));
-  // auto X = DFT(signal);
-  auto [freqs, mags] = MagnitudeSpectrum(X, N);
-  GNUPlot(freqs, mags);
+  // auto X = DFT(ForReals(signal));
+  // // auto X = DFT(signal);
+  // auto [freqs, mags] = MagnitudeSpectrum(X, N);
+  // GNUPlot(freqs, mags);
 
-  auto reconstructedSignal = iDFT(X);
-  GNUPlot(time, ForReals(reconstructedSignal));
+  // auto reconstructedSignal = iDFT(X);
+  // GNUPlot(time, ForReals(reconstructedSignal));
 }

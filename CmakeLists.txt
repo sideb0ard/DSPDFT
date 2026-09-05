@@ -6,4 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(CMAKE_CXX_COMPILER clang++)
 
+find_package(SndFile REQUIRED)
+
 add_executable(dft dft.cc)
+target_link_libraries(dft PRIVATE SndFile::sndfile)
