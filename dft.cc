@@ -10,6 +10,8 @@
 
 constexpr double N = 500;
 constexpr double kSamplingRate = 44100;
+constexpr int kNfft = 512;
+constexpr int kStep = 256;
 
 template <typename T>
 std::vector<T> arange(T start = 0, T stop = N, T step = 1) {
@@ -87,6 +89,36 @@ void GNUPlot(const std::vector<double>& time, const std::vector<double>& amp) {
   //   fprintf(stderr, "uh oh\n");
   // }
 }
+void GNUSPlot(const std::vector<std::vector<double>>& heatmap,
+              double time_step_sec, double bin_hz) {
+  struct PipeCloser {
+    void operator()(FILE* f) const {
+      if (f) pclose(f);
+    }
+  };
+  using PipePtr = std::unique_ptr<FILE, PipeCloser>;
+  PipePtr gp(popen("gnuplot -persist", "w"));
+  if (!gp) {
+    fprintf(stderr, "Could not open pipe to gnuplot\n");
+    return;
+  }
+  fprintf(gp.get(), "set pm3d map\n");
+  fprintf(gp.get(), "set palette rgbformulae 22,13,-31\n");
+  fprintf(gp.get(), "set title 'Heatmap'\n");
+  fprintf(gp.get(), "set xlabel 'Time (s)'\n");
+  fprintf(gp.get(), "set ylabel 'Frequency (Hz)'\n");
+  fprintf(gp.get(), "splot '-' using 1:2:3 with pm3d notitle\n");
+
+  for (size_t m = 0; m < heatmap.size(); ++m) {
+    const double t = m * time_step_sec;
+    for (size_t k = 0; k < heatmap[m].size(); ++k) {
+      const double f = k * bin_hz;
+      fprintf(gp.get(), "%f %f %f\n", t, f, heatmap[m][k]);
+    }
+    fprintf(gp.get(), "\n");
+  }
+  fprintf(gp.get(), "e\n");
+}
 
 std::vector<double> GenerateRealSinusoid() {
   constexpr double kAmplitude = 0.8;
@@ -142,46 +174,83 @@ std::vector<std::complex<double>> iDFT(std::vector<std::complex<double>> dft) {
   return signal;
 }
 
-void OpenSquareWave() {
+std::vector<double> OpenSquareWave() {
   constexpr std::string_view filename = "./square-wave-440.wav";
 
   SF_INFO fileinfo;
   SNDFILE* sndf = sf_open(filename.data(), SFM_READ, &fileinfo);
 
-  std::cout << "YO - OPENED FILE:" << filename << " SR:" << fileinfo.samplerate
-            << " Format:" << fileinfo.format
-            << " Num frames:" << fileinfo.frames << std::endl;
-
-  constexpr int NFFT = 512;
-  constexpr int STEPSIZE = 256;
   const int num_frames = fileinfo.frames;
   const int num_channels = fileinfo.channels;
 
-  std::vector<double> buffer(NFFT * num_channels, 0);
-  int file_idx = 0;
-  int write_num = 0;
-  int num_read = 0;
-  while (file_idx < num_frames) {
-    int write_idx = 0;
-    if (write_num == 1) {
-      write_idx = buffer.size() / 2;
-    }
-    sf_count_t frames_read =
-        sf_readf_double(sndf, &buffer[write_idx], STEPSIZE);
-    std::cout << "REad: " << frames_read << std::endl;
-    write_num++;
-    if (write_num == 2) {
-      // DO STFT
-      buffer.clear();
-    }
-    file_idx += STEPSIZE;
+  std::cout << "YO - OPENED FILE:" << filename << " SR:" << fileinfo.samplerate
+            << " Format:" << fileinfo.format << " Num frames:" << num_frames
+            << std::endl;
+
+  std::vector<double> buffer(num_frames * num_channels, 0);
+  sf_count_t frames_read = sf_readf_double(sndf, buffer.data(), num_frames);
+  sf_close(sndf);
+
+  return buffer;
+}
+
+void FFT(std::vector<std::complex<double>>& x) {
+  const size_t N = x.size();
+  if (N <= 1) return;
+
+  std::vector<std::complex<double>> even(N / 2);
+  std::vector<std::complex<double>> odd(N / 2);
+  for (size_t i = 0; i < N / 2; ++i) {
+    even[i] = x[2 * i];
+    odd[i] = x[2 * i + 1];
   }
+  FFT(even);
+  FFT(odd);
+
+  for (size_t k = 0; k < N / 2; k++) {
+    std::complex<double> twiddle =
+        std::polar(1.0, -2.0 * M_PI * k / N) * odd[k];
+    x[k] = even[k] + twiddle;
+    x[k + N / 2] = even[k] - twiddle;
+  }
+}
+
+void STFT() {
+  auto square = OpenSquareWave();
+
+  std::vector<double> window(kNfft, 0);
+  for (int n = 0; n < kNfft; n++) {
+    double hann = 0.5 - 0.5 * std::cos(2.0 * M_PI * n / (kNfft));
+    window[n] = std::sqrt(hann);
+  }
+
+  const size_t num_frames = (square.size() - kNfft) / kStep + 1;
+  std::vector<std::vector<double>> spectrogram(
+      num_frames, std::vector<double>(kNfft / 2 + 1));
+
+  double binHz = static_cast<double>(44100) / kNfft;
+
+  for (int m = 0; m < num_frames; m++) {
+    int start = m * kStep;
+    std::vector<std::complex<double>> frame(kNfft);
+    for (int n = 0; n < kNfft; n++)
+      frame[n] = std::complex<double>(square[start + n] * window[n], 0.0);
+
+    FFT(frame);
+
+    for (int k = 0; k < kNfft / 2 + 1; ++k) {
+      double mag = std::abs(frame[k]);
+      spectrogram[m][k] = 20.0 * std::log10(mag + 1e-9);
+    }
+  }
+
+  GNUSPlot(spectrogram, kStep / 44100.0, 44100.0 / kNfft);
 }
 
 int main() {
   std::cout << "YO MO!" << std::endl;
 
-  OpenSquareWave();
+  STFT();
 
   // constexpr int kNumSamples = 1024;
   // auto signal =
