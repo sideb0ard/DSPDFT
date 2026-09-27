@@ -8,13 +8,14 @@
 #include <ranges>
 #include <vector>
 
-constexpr double N = 500;
+constexpr double kComplexSinusoidLength = 500;
 constexpr double kSamplingRate = 44100;
 constexpr int kNfft = 512;
 constexpr int kStep = 256;
 
 template <typename T>
-std::vector<T> arange(T start = 0, T stop = N, T step = 1) {
+std::vector<T> arange(T start = 0, T stop = kComplexSinusoidLength,
+                      T step = 1) {
   std::vector<T> values;
   for (T value = start; value < stop; value += step) {
     values.push_back(value);
@@ -136,10 +137,10 @@ std::vector<double> GenerateRealSinusoid() {
 
 std::vector<std::complex<double>> GenerateComplexSinusoid() {
   constexpr double k = 5;
-  auto n = arange(-N / 2, N / 2);
+  auto n = arange(-kComplexSinusoidLength / 2, kComplexSinusoidLength / 2);
   std::vector<std::complex<double>> signal;
   for (const auto& t : n) {
-    double phase = 2.0 * std::numbers::pi * k * t / N;
+    double phase = 2.0 * std::numbers::pi * k * t / kComplexSinusoidLength;
     signal.push_back(std::polar(1.0, phase));
   }
   return signal;
@@ -215,20 +216,35 @@ void FFT(std::vector<std::complex<double>>& x) {
   }
 }
 
+void iFFT(std::vector<std::complex<double>>& x) {
+  const size_t n = x.size();
+
+  // conjugate input
+  for (auto& v : x) v = std::conj(v);
+
+  FFT(x);
+
+  // conjugate result and normalize ny N
+  for (auto& v : x) v = std::conj(v) / static_cast<double>(n);
+}
+
 void STFT() {
   auto square = OpenSquareWave();
 
+  // auto plottime = arange(0.0, static_cast<double>(kNfft), 1.0);
   std::vector<double> window(kNfft, 0);
   for (int n = 0; n < kNfft; n++) {
-    double hann = 0.5 - 0.5 * std::cos(2.0 * M_PI * n / (kNfft));
+    double hann = 0.5 - 0.5 * std::cos(2.0 * M_PI * n / kNfft);
     window[n] = std::sqrt(hann);
   }
+  // GNUPlot(plottime, window);
 
   const size_t num_frames = (square.size() - kNfft) / kStep + 1;
-  std::vector<std::vector<double>> spectrogram(
-      num_frames, std::vector<double>(kNfft / 2 + 1));
 
-  double binHz = static_cast<double>(44100) / kNfft;
+  // std::vector<std::vector<double>> spectrogram(
+  //     num_frames, std::vector<double>(kNfft / 2 + 1));
+
+  // double binHz = static_cast<double>(kSamplingRate) / kNfft;
 
   for (int m = 0; m < num_frames; m++) {
     int start = m * kStep;
@@ -236,15 +252,25 @@ void STFT() {
     for (int n = 0; n < kNfft; n++)
       frame[n] = std::complex<double>(square[start + n] * window[n], 0.0);
 
+    std::vector<std::complex<double>> original = frame;
+
     FFT(frame);
 
-    for (int k = 0; k < kNfft / 2 + 1; ++k) {
-      double mag = std::abs(frame[k]);
-      spectrogram[m][k] = 20.0 * std::log10(mag + 1e-9);
+    std::vector<std::complex<double>> reconstructed = frame;
+    iFFT(reconstructed);
+
+    for (size_t i = 0; i < original.size(); ++i) {
+      double error = std::abs(reconstructed[i] - original[i]);
+      std::cout << "ERR val:" << error << std::endl;
     }
+
+    // for (int k = 0; k < kNfft / 2 + 1; ++k) {
+    //   double mag = std::abs(frame[k]);
+    //   spectrogram[m][k] = 20.0 * std::log10(mag + 1e-9);
+    // }
   }
 
-  GNUSPlot(spectrogram, kStep / 44100.0, 44100.0 / kNfft);
+  // GNUSPlot(spectrogram, kStep / kSamplingRate, kSamplingRate / kNfft);
 }
 
 int main() {
