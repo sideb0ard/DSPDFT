@@ -231,7 +231,7 @@ void iFFT(std::vector<std::complex<double>>& x) {
 void STFT() {
   auto square = OpenSquareWave();
 
-  // auto plottime = arange(0.0, static_cast<double>(kNfft), 1.0);
+  auto plottime = arange(0.0, static_cast<double>(kNfft), 1.0);
   std::vector<double> window(kNfft, 0);
   for (int n = 0; n < kNfft; n++) {
     double hann = 0.5 - 0.5 * std::cos(2.0 * M_PI * n / kNfft);
@@ -246,31 +246,33 @@ void STFT() {
 
   // double binHz = static_cast<double>(kSamplingRate) / kNfft;
 
-  for (int m = 0; m < num_frames; m++) {
+  // for (int m = 0; m < num_frames; m++) {
+  for (int m = 0; m < 1; m++) {
     int start = m * kStep;
     std::vector<std::complex<double>> frame(kNfft);
-    for (int n = 0; n < kNfft; n++)
+    std::vector<std::complex<double>> original(kNfft);
+    for (int n = 0; n < kNfft; n++) {
       frame[n] = std::complex<double>(square[start + n] * window[n], 0.0);
-
-    std::vector<std::complex<double>> original = frame;
+      original[n] = std::complex<double>(square[start + n], 0.0);
+    }
 
     FFT(frame);
 
     std::vector<std::complex<double>> reconstructed = frame;
     iFFT(reconstructed);
 
-    for (size_t i = 0; i < original.size(); ++i) {
-      double error = std::abs(reconstructed[i] - original[i]);
-      std::cout << "ERR val:" << error << std::endl;
-    }
+    // for (size_t i = 0; i < original.size(); ++i) {
+    //   double error = std::abs(reconstructed[i] - original[i]);
+    //   std::cout << "ERR val:" << error << std::endl;
+    // }
 
+    GNUPlot(plottime, ForReals(original));
+    GNUPlot(plottime, ForReals(reconstructed));
     // for (int k = 0; k < kNfft / 2 + 1; ++k) {
     //   double mag = std::abs(frame[k]);
     //   spectrogram[m][k] = 20.0 * std::log10(mag + 1e-9);
     // }
   }
-
-  // GNUSPlot(spectrogram, kStep / kSamplingRate, kSamplingRate / kNfft);
 }
 
 int main() {
