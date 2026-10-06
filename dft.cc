@@ -175,9 +175,7 @@ std::vector<std::complex<double>> iDFT(std::vector<std::complex<double>> dft) {
   return signal;
 }
 
-std::vector<double> OpenSquareWave() {
-  constexpr std::string_view filename = "./square-wave-440.wav";
-
+std::vector<double> OpenWaveFile(const std::string_view filename) {
   SF_INFO fileinfo;
   SNDFILE* sndf = sf_open(filename.data(), SFM_READ, &fileinfo);
 
@@ -229,50 +227,39 @@ void iFFT(std::vector<std::complex<double>>& x) {
 }
 
 void STFT() {
-  auto square = OpenSquareWave();
+  auto chirp = OpenWaveFile("chirp.wav");
 
-  auto plottime = arange(0.0, static_cast<double>(kNfft), 1.0);
   std::vector<double> window(kNfft, 0);
   for (int n = 0; n < kNfft; n++) {
-    double hann = 0.5 - 0.5 * std::cos(2.0 * M_PI * n / kNfft);
-    window[n] = std::sqrt(hann);
+    // double hann = 0.5 - 0.5 * std::cos(2.0 * M_PI * n / kNfft);
+    // window[n] = std::sqrt(hann);
+    window[n] = 0.5 - 0.5 * std::cos(2.0 * M_PI * n / kNfft);
   }
-  // GNUPlot(plottime, window);
 
-  const size_t num_frames = (square.size() - kNfft) / kStep + 1;
+  const size_t num_frames = chirp.size() >= static_cast<size_t>(kNfft)
+                                ? (chirp.size() - kNfft) / kStep + 1
+                                : 0;
 
-  // std::vector<std::vector<double>> spectrogram(
-  //     num_frames, std::vector<double>(kNfft / 2 + 1));
+  std::vector<std::vector<double>> spectrogram(
+      num_frames, std::vector<double>(kNfft / 2 + 1));
 
-  // double binHz = static_cast<double>(kSamplingRate) / kNfft;
-
-  // for (int m = 0; m < num_frames; m++) {
-  for (int m = 0; m < 1; m++) {
-    int start = m * kStep;
+  for (size_t m = 0; m < num_frames; m++) {
+    const size_t start = m * kStep;
     std::vector<std::complex<double>> frame(kNfft);
-    std::vector<std::complex<double>> original(kNfft);
     for (int n = 0; n < kNfft; n++) {
-      frame[n] = std::complex<double>(square[start + n] * window[n], 0.0);
-      original[n] = std::complex<double>(square[start + n], 0.0);
+      frame[n] = std::complex<double>(chirp[start + n] * window[n], 0.0);
     }
 
     FFT(frame);
 
-    std::vector<std::complex<double>> reconstructed = frame;
-    iFFT(reconstructed);
-
-    // for (size_t i = 0; i < original.size(); ++i) {
-    //   double error = std::abs(reconstructed[i] - original[i]);
-    //   std::cout << "ERR val:" << error << std::endl;
-    // }
-
-    GNUPlot(plottime, ForReals(original));
-    GNUPlot(plottime, ForReals(reconstructed));
-    // for (int k = 0; k < kNfft / 2 + 1; ++k) {
-    //   double mag = std::abs(frame[k]);
-    //   spectrogram[m][k] = 20.0 * std::log10(mag + 1e-9);
-    // }
+    for (int k = 0; k < kNfft / 2 + 1; ++k) {
+      double mag = std::abs(frame[k]);
+      spectrogram[m][k] = 20.0 * std::log10(mag + 1e-9);
+    }
   }
+  constexpr double kFrameSec = kStep / kSamplingRate;
+  constexpr double kBinHz = kSamplingRate / kNfft;
+  GNUSPlot(spectrogram, kFrameSec, kBinHz);
 }
 
 int main() {
